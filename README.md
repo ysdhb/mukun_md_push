@@ -42,15 +42,49 @@ git clone https://github.com/MuKunZiAI/mukun_md_push.git .claude/skills/mukun-md
 
 ### OpenCode
 
+OpenCode 支持两种安装方式：
+
+#### 方式一：Plugin 模式（推荐，支持自动更新）
+
+在 `opencode.json`（全局或项目级别）中添加插件配置：
+
+```json
+{
+  "plugin": ["mukun-md-push-wechat@git+https://github.com/MuKunZiAI/mukun_md_push.git"]
+}
+```
+
+保存后重启 OpenCode，插件会自动安装并注册所有 skills。通过 `use skill tool to load mukun-md-push-wechat` 调用。
+
+#### 方式二：npm 手动安装
+
+适用于 OpenCode 插件管理器无法自动安装的环境（如部分 Windows 版本）：
+
 ```bash
-# 用户级安装（所有项目可用）
+npm install mukun-md-push-wechat@git+https://github.com/MuKunZiAI/mukun_md_push.git --prefix "$HOME/.config/opencode"
+```
+
+然后在 `opencode.json` 中指向本地包：
+
+```json
+{
+  "plugin": ["~/.config/opencode/node_modules/mukun-md-push-wechat"]
+}
+```
+
+#### 方式三：手动 clone（传统方式）
+
+```bash
+# 用户级安装
 git clone https://github.com/MuKunZiAI/mukun_md_push.git ~/.opencode/skills/mukun-md-push-wechat
 
-# 项目级安装（仅当前项目可用）
+# 项目级安装
 git clone https://github.com/MuKunZiAI/mukun_md_push.git .opencode/skills/mukun-md-push-wechat
 ```
 
 安装后输入 `/init` 重新扫描加载，然后通过 `@mukun-md-push-wechat` 或自然语言触发。
+
+> Plugin 模式下，插件会自动将仓库根目录注册为 skills 搜索路径，并注入 `CODEBUDDY_SKILL_DIR` 环境变量，确保 SKILL.md 中的脚本路径在 OpenCode 环境下也能正确解析。
 
 ### OpenAI Codex CLI
 
@@ -216,7 +250,11 @@ python3 scripts/push_daily.py article.md --title "自定义标题" --cover ./封
 
 ```
 mukun_md_push/
+├── package.json                # NPM 包定义（OpenCode/Codex 插件安装）
 ├── SKILL.md                    # Skill 定义文件（各工具通用入口）
+├── .opencode/
+│   └── plugins/
+│       └── mukun-md-push-wechat.js  # OpenCode 插件入口
 ├── scripts/
 │   ├── md2wechat_html.py       # Markdown → 微信 HTML 转换器
 │   └── push_daily.py           # 转换 + 推送草稿箱脚本
