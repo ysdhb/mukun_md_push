@@ -35,8 +35,6 @@
 ```
 请读取并安装这个 Skill：
 https://raw.githubusercontent.com/MuKunZiAI/mukun_md_push/main/SKILL.md
-
-然后再帮我把 <你的文件路径>.md 转换为微信公众号 HTML。
 ```
 
 AI 会自动获取 SKILL.md 中的指令并按步骤执行，无需提前配置任何环境。适用于 WorkBuddy、Claude Code、OpenCode、Cursor、Gemini CLI 等所有支持联网读取的智能体。
