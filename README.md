@@ -131,30 +131,47 @@ rm -rf /tmp/mukun_md_push
 
 ## 💡 使用示例
 
-仓库 `examples/` 目录下提供了两种模式的完整示例 Markdown 文件及其生成的 HTML 预览：
+安装 Skill 后，直接用自然语言告诉 AI 智能体即可：
 
-| 示例 | Markdown | HTML 预览 | 配色 | 适用场景 |
-|------|----------|-----------|------|---------|
-| 新闻模式 | [news_example.md](examples/default/news_example.md) | [news_example.html](examples/default/news_example.html) | 默认（报纸风格） | AI 周报、行业动态汇总 |
-| 文章模式 | [article_example.md](examples/default/article_example.md) | [article_example.html](examples/default/article_example.html) | 默认（AI 风格） | 技术实践、AI 深度文章 |
+### 新闻模式
 
-#### 配色方案
+> "帮我把这篇 AI 周报转成新闻模式的微信公众号 HTML"
 
-除默认配色外，`examples/` 下还提供了两套自定义配色方案及对应示例：
+<p align="center">
+  <img src="assets/news.png" alt="新闻模式" width="480" />
+</p>
 
-| 配色方案 | 配置文件 | 示例源文件 | 示例预览 | 说明 |
-|----------|----------|-----------|----------|------|
-| 泛黄怀旧 | [config_nostalgic.yaml](examples/nostalgic/config_nostalgic.yaml) | [article_nostalgic_example.md](examples/nostalgic/article_nostalgic_example.md) | [article_nostalgic_example.html](examples/nostalgic/article_nostalgic_example.html) | 古卷泛黄 + 古铜暖棕，适合历史文章 |
-| 现代化 | [config_modern.yaml](examples/modern/config_modern.yaml) | [article_example.md](examples/default/article_example.md) | [article_modern_example.html](examples/modern/article_modern_example.html) | 科技蓝紫 + 深邃灰蓝，适合 AI 科技文章 |
+### 文章模式（默认风格）
 
-使用自定义配色生成示例：
+> "把这篇文章转成微信公众号 HTML"
 
-```bash
-python3 scripts/md2wechat_html.py --config examples/nostalgic/config_nostalgic.yaml --article story.md
-python3 scripts/md2wechat_html.py --config examples/modern/config_modern.yaml --article article.md
-```
+白底灰字，适合技术实践与深度文章：
 
-> 完整配置示例参见 [examples/config_example.yaml](examples/config_example.yaml)，包含两种模式下所有可配置项及默认值注释。
+<p align="center">
+  <img src="assets/article_default.png" alt="文章模式-默认" width="480" />
+</p>
+
+### 文章模式（泛黄怀旧）
+
+> "用泛黄怀旧风格把这篇文章转成微信公众号 HTML"
+
+古卷泛黄底色 + 古铜暖棕强调色，适合历史文化类叙事长文：
+
+<p align="center">
+  <img src="assets/article_nostalgic.png" alt="文章模式-泛黄怀旧" width="480" />
+</p>
+
+### 文章模式（科技蓝紫）
+
+> "用科技蓝紫风格把这篇文章转成微信公众号 HTML"
+
+深邃灰蓝背景 + 蓝紫渐变强调色，适合 AI 科技、技术前沿文章：
+
+<p align="center">
+  <img src="assets/article_modern.png" alt="文章模式-科技蓝紫" width="480" />
+</p>
+
+> 完整示例 Markdown 源文件及生成的 HTML 参见 [examples/](examples/) 目录，自定义配色配置文件参见 [examples/config_example.yaml](examples/config_example.yaml)。
 
 ### 🎨 样式配置参考
 
@@ -207,38 +224,6 @@ python3 scripts/md2wechat_html.py --config examples/modern/config_modern.yaml --
 | `ending_lines` | 5 行默认尾栏 | 文末尾栏，`[]` 关闭，支持 HTML 标签 |
 
 </details>
-
-### 新闻模式
-
-板块化日报，报纸风格配色：
-
-<p align="center">
-  <img src="assets/news.png" alt="新闻模式" width="480" />
-</p>
-
-### 文章模式（默认风格）
-
-白底灰字 + 棕色标签二级标题，适合技术实践、AI 深度文章：
-
-<p align="center">
-  <img src="assets/article_default.png" alt="文章模式-默认" width="480" />
-</p>
-
-### 文章模式（泛黄怀旧）
-
-古卷泛黄底色 + 古铜暖棕强调色，适合历史文化类叙事长文：
-
-<p align="center">
-  <img src="assets/article_nostalgic.png" alt="文章模式-泛黄怀旧" width="480" />
-</p>
-
-### 文章模式（科技蓝紫）
-
-深邃灰蓝背景 + 蓝紫渐变强调色，适合 AI 科技、技术前沿文章：
-
-<p align="center">
-  <img src="assets/article_modern.png" alt="文章模式-科技蓝紫" width="480" />
-</p>
 
 ## 🚀 使用方式
 
