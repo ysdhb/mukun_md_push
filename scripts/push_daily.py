@@ -9,6 +9,11 @@
   # 文章模式
   python3 push_daily.py --article <input.md> [--title TITLE] [--cover COVER_IMAGE] [--digest DIGEST] [--media-id MEDIA_ID]
 
+  # 更新已有草稿（追加 --update，其余参数同上）
+  python3 push_daily.py --update <input.md> [--title TITLE] [--cover COVER_IMAGE] [--digest DIGEST]
+  python3 push_daily.py --update MEDIA_ID <input.md> [--title TITLE] [--cover COVER_IMAGE] [--digest DIGEST]
+  python3 push_daily.py --article --update <input.md> [--title TITLE] [--cover COVER_IMAGE] [--digest DIGEST]
+
 Markdown frontmatter 支持（在文件顶部加 YAML 区段，可省去 --title 和 --digest 参数）：
   ---
   title: 文章标题
@@ -27,7 +32,8 @@ Markdown frontmatter 支持（在文件顶部加 YAML 区段，可省去 --title
 完整工作流:
   1. Markdown → 微信兼容 HTML (md2wechat_html.py，文章模式时加 --article 参数)
   2. 上传封面图（首次）
-  3. 推送草稿箱
+  3. 上传正文图片素材并替换 HTML 引用（支持缓存复用）
+  4. 推送草稿箱 / 更新已有草稿（--update）
 
 """
 
@@ -37,6 +43,7 @@ import re
 import ssl
 import sys
 import subprocess
+import urllib.parse
 import urllib.request
 
 # ─── 配置 ───────────────────────────────────────────────
@@ -49,6 +56,10 @@ ARTICLE_COVER_MEDIA_ID_FILE = os.path.join(os.path.expanduser("~/.md_push_wechat
 DEFAULT_COVER = os.path.join(os.path.expanduser("~/.md_push_wechat"), "封面图.png")
 DEFAULT_ARTICLE_COVER = os.path.join(os.path.expanduser("~/.md_push_wechat"), "AI文章封面.png")
 MD2WECHAT_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "md2wechat_html.py")
+IMAGE_MAP_FILE = os.path.join(os.path.expanduser("~/.md_push_wechat"), "image_asset_map.json")
+DRAFT_MEDIA_ID_FILE = os.path.join(os.path.expanduser("~/.md_push_wechat"), "draft_media_id.txt")
+
+SUPPORTED_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")
 
 # ─── 工具函数 ───────────────────────────────────────────
 
@@ -121,6 +132,215 @@ def upload_image(access_token, image_path):
     
     return result["media_id"]
 
+
+def upload_content_image(access_token, image_path):
+    """上传正文图片到微信永久素材库（图文消息图片接口），返回 URL
+
+    使用 cgi-bin/material/add_material?type=image，上传到永久素材库。
+    返回的 url 可直接用于图文消息正文中的 <img> src 属性。
+    """
+    ctx = ssl.create_default_context()
+    filename = os.path.basename(image_path)
+    with open(image_path, "rb") as f:
+        file_data = f.read()
+
+    boundary = "----WechatContentImageBoundary7MA4YWxkTrZu0gW"
+    body_parts = []
+    body_parts.append(
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="media"; filename="{filename}"\r\n'
+        f"Content-Type: application/octet-stream\r\n\r\n".encode("utf-8")
+    )
+    body_parts.append(file_data)
+    body_parts.append(f"\r\n--{boundary}--\r\n".encode("utf-8"))
+    body = b"".join(body_parts)
+
+    # 使用永久素材上传接口，type=image
+    url = f"{API_BASE}/cgi-bin/material/add_material?access_token={access_token}&type=image"
+    req = urllib.request.Request(
+        url, data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
+    )
+    with urllib.request.urlopen(req, context=ctx) as resp:
+        result = json.loads(resp.read())
+
+    image_url = result.get("url")
+    if not image_url:
+        print(f"ERROR: 正文图片上传失败: {json.dumps(result, ensure_ascii=False)}")
+        sys.exit(1)
+    return image_url
+
+
+# ─── 图片解析 / 上传 / 缓存 ─────────────────────────────
+
+def _normalize_image_token(token):
+    """规范化图片标识文本（描述或文件名）用于匹配"""
+    token = token.strip().lower()
+    token = os.path.splitext(token)[0]
+    token = re.sub(r'[\s_\-]+', '', token)
+    token = re.sub(r'[^\w\u4e00-\u9fff]', '', token)
+    return token
+
+
+def _parse_md_image_target(target):
+    """解析 Markdown 图片目标，兼容可选 title 与 <...> 包裹语法"""
+    target = target.strip()
+    if not target:
+        return ""
+
+    angle_match = re.match(r'^<([^>]+)>(?:\s+["\'][^"\']*["\'])?$', target)
+    if angle_match:
+        return angle_match.group(1).strip()
+
+    plain_match = re.match(r'^(\S+)(?:\s+["\'][^"\']*["\'])?$', target)
+    if plain_match:
+        return plain_match.group(1).strip()
+
+    return target
+
+
+def _list_local_images(md_file):
+    """列出 Markdown 同级目录及 images/assets 子目录可候选图片"""
+    md_dir = os.path.dirname(os.path.abspath(md_file)) or "."
+    candidate_dirs = [md_dir, os.path.join(md_dir, "images"), os.path.join(md_dir, "assets")]
+    image_paths = []
+
+    for d in candidate_dirs:
+        if not os.path.isdir(d):
+            continue
+        for name in os.listdir(d):
+            path = os.path.join(d, name)
+            if os.path.isfile(path) and name.lower().endswith(SUPPORTED_IMAGE_EXTS):
+                image_paths.append(path)
+
+    return image_paths
+
+
+def _resolve_md_image_to_file(md_file, img_target, img_alt, image_paths):
+    """根据 Markdown 图片 target/alt 自动解析到本地文件路径"""
+    md_dir = os.path.dirname(os.path.abspath(md_file)) or "."
+    parsed_target = _parse_md_image_target(img_target)
+
+    # 1) 已经是远程地址，直接返回
+    if re.match(r'^https?://', parsed_target, re.IGNORECASE):
+        return parsed_target, "remote"
+
+    # 2) target 是本地路径（相对/绝对）
+    if parsed_target:
+        unquoted = urllib.parse.unquote(parsed_target)
+        direct_path = unquoted if os.path.isabs(unquoted) else os.path.join(md_dir, unquoted)
+        if os.path.exists(direct_path) and os.path.isfile(direct_path):
+            return os.path.abspath(direct_path), "path"
+
+    # 3) 按描述（alt）匹配本地图片文件名
+    if not image_paths:
+        return None, "missing"
+
+    alt_key = _normalize_image_token(img_alt)
+    target_key = _normalize_image_token(os.path.basename(parsed_target)) if parsed_target else ""
+    keys = [k for k in [alt_key, target_key] if k]
+    if not keys:
+        return None, "missing"
+
+    for k in keys:
+        for path in image_paths:
+            name_key = _normalize_image_token(os.path.basename(path))
+            if k and (k == name_key or k in name_key or name_key in k):
+                return os.path.abspath(path), "matched-alt"
+
+    return None, "missing"
+
+
+def _load_image_asset_map():
+    """读取本地图片素材映射缓存"""
+    if not os.path.exists(IMAGE_MAP_FILE):
+        return {}
+    try:
+        with open(IMAGE_MAP_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_image_asset_map(image_map):
+    """保存图片素材映射缓存（写入失败时优雅降级，不影响主流程）"""
+    try:
+        folder = os.path.dirname(IMAGE_MAP_FILE)
+        os.makedirs(folder, exist_ok=True)
+        with open(IMAGE_MAP_FILE, "w", encoding="utf-8") as f:
+            json.dump(image_map, f, ensure_ascii=False, indent=2)
+    except (PermissionError, OSError) as e:
+        print(f"WARNING: 无法保存图片缓存: {e}")
+
+
+def replace_local_images_with_wechat_assets(md_file, html_content, access_token):
+    """上传 Markdown 内本地图片并替换 HTML 为微信素材 URL
+
+    工作流：
+    1. 从原始 Markdown 提取所有图片引用
+    2. 解析到本地文件（支持相对路径、alt 模糊匹配）
+    3. 查缓存（image_asset_map.json），命中则复用 URL
+    4. 未命中则上传到微信永久素材库 cgi-bin/material/add_material
+    5. 将 HTML 中的图片 src 替换为微信素材 URL
+    """
+    with open(md_file, "r", encoding="utf-8") as f:
+        md_text = f.read()
+
+    md_img_pattern = re.compile(r'!\[([^\]]*)\]\(([^)\n]+)\)')
+    refs = md_img_pattern.findall(md_text)
+    if not refs:
+        return html_content
+
+    image_paths = _list_local_images(md_file)
+    image_map = _load_image_asset_map()
+    updated_map = False
+    replacements = {}
+
+    for alt, target in refs:
+        resolved, source_kind = _resolve_md_image_to_file(md_file, target, alt, image_paths)
+        src_key = _parse_md_image_target(target).strip()
+        if not src_key:
+            continue
+
+        if source_kind == "remote":
+            replacements[src_key] = resolved
+            continue
+
+        if not resolved:
+            print(f"WARNING: 未找到图片文件，跳过: alt='{alt}', target='{target}'")
+            continue
+
+        cache_key = os.path.abspath(resolved)
+        wechat_url = image_map.get(cache_key, "")
+        if not wechat_url:
+            print(f"上传正文图片: {resolved}")
+            wechat_url = upload_content_image(access_token, resolved)
+            image_map[cache_key] = wechat_url
+            updated_map = True
+            print(f"正文图片 URL: {wechat_url}")
+        else:
+            print(f"复用已上传正文图片: {resolved}")
+
+        replacements[src_key] = wechat_url
+        # 兼容 HTML 中可能出现的 URL 编码形式
+        replacements[urllib.parse.quote(src_key, safe="/:@+")] = wechat_url
+        replacements[urllib.parse.unquote(src_key)] = wechat_url
+
+    if updated_map:
+        _save_image_asset_map(image_map)
+        print(f"正文图片映射已保存: {IMAGE_MAP_FILE}")
+
+    if not replacements:
+        return html_content
+
+    for old_src, new_src in replacements.items():
+        html_content = html_content.replace(f'src="{old_src}"', f'src="{new_src}"')
+
+    return html_content
+
+
+# ─── 封面图 / 推送 ──────────────────────────────────────
 
 def get_cover_media_id(access_token, cover_path, article_mode=False, cmd_media_id=None):
     """获取封面图 media_id
@@ -475,6 +695,59 @@ def _push_multi_drafts(access_token, parts, thumb_media_id, cover_path="", diges
     return media_id
 
 
+def update_draft(access_token, media_id, title, html_content, thumb_media_id, cover_path="", digest="", index=0):
+    """更新已有草稿（修改标题、正文、封面等）
+
+    与 push_draft（新建）的区别：
+    - API: cgi-bin/draft/update（而非 draft/add）
+    - 需要 media_id（指定要修改的草稿）和 index（多图文中的位置）
+    - articles 是单个对象而非数组
+    - 不支持自动拆分（超限内容应先用 push_draft 新建后再更新）
+    """
+    # 生成摘要
+    if not digest:
+        plain_text = re.sub(r"<[^>]+>", "", html_content)
+        plain_text = re.sub(r"\s+", " ", plain_text).strip()
+        digest = plain_text[:120] if len(plain_text) > 120 else plain_text
+
+    title = _truncate_title(title)
+    print(f"更新草稿 media_id: {media_id}, index: {index}")
+    print(f"标题: {title}")
+    print(f"摘要: {digest[:50]}{'...' if len(digest) > 50 else ''}")
+    print(f"内容长度: {len(html_content)} 字符")
+
+    if len(html_content) > MAX_CONTENT_LENGTH:
+        print(f"WARNING: 内容超过 {MAX_CONTENT_LENGTH} 字符，更新接口不支持自动拆分，请用 push_draft 新建")
+
+    pic_crop_1_1 = HARDCODED_PIC_CROP_1_1 if cover_path else ""
+    if pic_crop_1_1:
+        print(f"封面图 1:1 裁剪坐标: {pic_crop_1_1}")
+
+    article = _make_article(title, html_content, thumb_media_id, digest, pic_crop_1_1)
+
+    # 更新接口：articles 是 object，不是 array
+    payload = {
+        "media_id": media_id,
+        "index": index,
+        "articles": article,
+    }
+
+    ctx = ssl.create_default_context()
+    url = f"{API_BASE}/cgi-bin/draft/update?access_token={access_token}"
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+
+    with urllib.request.urlopen(req, context=ctx) as resp:
+        result = json.loads(resp.read())
+
+    if result.get("errcode") and result["errcode"] != 0:
+        print(f"ERROR: 更新草稿失败: {json.dumps(result, ensure_ascii=False)}")
+        sys.exit(1)
+
+    print(f"✅ 草稿更新成功! media_id: {media_id}")
+    return media_id
+
+
 def extract_frontmatter(md_file):
     """从 Markdown 文件提取 frontmatter 元数据（标题、摘要等）
 
@@ -520,11 +793,20 @@ def main():
 
     args = sys.argv[1:]
     article_mode = False
+    update_mode = False
+    update_media_id = None
 
     # 识别模式参数
     if "--article" in args:
         article_mode = True
         args = [a for a in args if a != "--article"]
+    if "--update" in args:
+        update_mode = True
+        update_idx = args.index("--update")
+        args.pop(update_idx)
+        # --update 后可能跟一个可选的 media_id
+        if update_idx < len(args) and not args[update_idx].startswith("--"):
+            update_media_id = args.pop(update_idx)
 
     if not args:
         print(__doc__.strip())
@@ -602,11 +884,38 @@ def main():
     token = get_access_token(appid, secret)
     thumb_media_id = get_cover_media_id(token, cover, article_mode=article_mode, cmd_media_id=media_id)
 
-    # 4. 推送草稿箱
-    print(f"\n步骤 3: 推送草稿箱")
-    media_id = push_draft(token, title, html_content, thumb_media_id, cover_path=cover, digest=digest)
+    # 4. 正文图片上传与替换（支持缓存复用）
+    print(f"\n步骤 3: 上传正文图片素材并替换引用")
+    html_content = replace_local_images_with_wechat_assets(md_file, html_content, token)
 
-    print(f"\n完成! 草稿 media_id: {media_id}")
+    # 5. 推送 / 更新草稿箱
+    if update_mode:
+        if update_media_id:
+            target_media_id = update_media_id
+        elif os.path.exists(DRAFT_MEDIA_ID_FILE):
+            with open(DRAFT_MEDIA_ID_FILE, "r", encoding="utf-8") as f:
+                target_media_id = f.read().strip()
+            print(f"从 draft_media_id.txt 读取上次草稿 media_id: {target_media_id}")
+        else:
+            print("ERROR: --update 模式下需要指定 media_id，或确保 draft_media_id.txt 存在")
+            sys.exit(1)
+
+        print(f"\n步骤 4: 更新草稿箱 (media_id: {target_media_id})")
+        result_media_id = update_draft(token, target_media_id, title, html_content, thumb_media_id, cover_path=cover, digest=digest)
+
+        print(f"\n完成! 草稿已更新: {result_media_id}")
+    else:
+        print(f"\n步骤 4: 推送草稿箱")
+        result_media_id = push_draft(token, title, html_content, thumb_media_id, cover_path=cover, digest=digest)
+
+        # 保存 media_id 供后续 --update 使用
+        folder = os.path.dirname(DRAFT_MEDIA_ID_FILE)
+        os.makedirs(folder, exist_ok=True)
+        with open(DRAFT_MEDIA_ID_FILE, "w", encoding="utf-8") as f:
+            f.write(result_media_id)
+        print(f"草稿 media_id 已保存到: {DRAFT_MEDIA_ID_FILE}")
+
+        print(f"\n完成! 草稿 media_id: {result_media_id}")
 
 
 if __name__ == "__main__":

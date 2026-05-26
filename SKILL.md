@@ -64,6 +64,11 @@ python3 ${CODEBUDDY_SKILL_DIR}/scripts/md2article_html.py --config /path/to/conf
 ```bash
 python3 ${CODEBUDDY_SKILL_DIR}/scripts/push_daily.py <input.md> [--title TITLE] [--cover COVER] [--digest DIGEST] [--media-id MEDIA_ID]
 python3 ${CODEBUDDY_SKILL_DIR}/scripts/push_daily.py --article <input.md> [--title TITLE] [--cover COVER] [--digest DIGEST] [--media-id MEDIA_ID]
+
+# 更新已有草稿（追加 --update）
+python3 ${CODEBUDDY_SKILL_DIR}/scripts/push_daily.py --update <input.md> [--title TITLE] [--cover COVER] [--digest DIGEST]
+python3 ${CODEBUDDY_SKILL_DIR}/scripts/push_daily.py --update MEDIA_ID <input.md> [--title TITLE] [--cover COVER] [--digest DIGEST]
+python3 ${CODEBUDDY_SKILL_DIR}/scripts/push_daily.py --article --update <input.md> [--title TITLE] [--cover COVER] [--digest DIGEST]
 ```
 
 支持 Markdown frontmatter 提取标题和摘要：
@@ -86,26 +91,23 @@ digest: 手动摘要（80字以内）
    - 不要使用 markdown 格式或 HTML 标签
    - 不要以「本文」「这篇文章」开头
 4. **调用 `push_daily.py`**：将生成的摘要通过 `--digest` 参数传入（若 frontmatter 已有 digest 则使用 frontmatter 中的值）
-5. 脚本自动执行：Markdown → HTML → 上传封面图 → 推送草稿箱
+5. 脚本自动执行：Markdown → HTML → 上传封面图 → 上传正文图片素材 → 推送草稿箱
 
 > **注意**：摘要生成是必选步骤，不可跳过。不要让脚本自动截取 120 字符——那会产生不完整的无意义截断。
 
 **自动拆分**：当 HTML 内容超过 20000 字符限制时，脚本会自动按 H2 标题拆分为多篇合并推送（同一图文消息内，读者上滑查看），标题自动添加（上）（中）（下）后缀。拆分后非首篇的摘要由脚本自动生成，无需手动处理。
 
-## CSS 内联优化策略（字符节省）
+**图片处理流程**（推送时自动执行）：
+1. 从原始 Markdown 提取 `![](url)` 图片引用
+2. 解析到本地文件（支持相对路径、绝对路径、alt 描述模糊匹配）
+3. 查缓存 `~/.md_push_wechat/image_asset_map.json`，命中则直接复用微信 CDN URL
+4. 未命中则上传到微信图文消息图片接口 `cgi-bin/media/uploadimg`
+5. 将 HTML 中的 `src` 替换为微信 CDN URL，并保存缓存
 
-微信公众号草稿接口有 **20000 字符限制**。脚本采用以下 CSS 继承策略压缩输出体积：
-
-- **`text-indent:0`** 统一写到 `<body style>` 一次，全文继承，各 `<p>/<h2>/<h3>` 不再重复（`text-indent` 是可继承属性）
-- **`color` / `font-size` / `line-height`** 提升到最近父级 `<section>`，子元素只保留差异化覆盖
-- **`<td>` 的 `color`** 从 `<body>` 继承，不在每个 `td` 重复
-- **空格规范**：style 属性内一律去掉冒号/分号后的空格，进一步节省
-
-实测节省效果（示例文件）：
-| 模式 | 优化前 | 优化后 | 节省 |
-|------|--------|--------|------|
-| 新闻 | 9,324 字符 | 8,352 字符 | 972 字符 (10.4%) |
-| 文章 | 9,527 字符 | 9,101 字符 | 426 字符 (4.5%) |
+**草稿更新（`--update`）**：
+- `--update [MEDIA_ID]`：更新已有草稿而非新建。MEDIA_ID 可选，不传则自动读取上次新建时保存的 `~/.md_push_wechat/draft_media_id.txt`
+- 新闻/文章两种模式均支持更新
+- 注意：更新接口不支持自动拆分，超限内容应先新建后更新
 
 ## 前置检查
 

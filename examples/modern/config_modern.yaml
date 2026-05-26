@@ -2,6 +2,7 @@
 # 特点：冷色调蓝紫、高对比、科技感渐变
 style:
     article:
+        theme: modern
         # 背景
         bg: "#ffffff"
         # 文字色：深邃灰蓝

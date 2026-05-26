@@ -276,9 +276,21 @@ def md_code_to_html(text, s):
 
 def format_text(text, s):
     text = escape_html(text)
+    # 行内代码（必须在图片之前处理，避免 `![]()` 被误识别）
+    text = md_code_to_html(text, s)
+    # 内联图片（必须在链接之前处理，检查是否在 <code> 内）
+    def replace_img(m):
+        prefix = text[:m.start()]
+        last_code_open = prefix.rfind('<code')
+        last_code_close = prefix.rfind('</code>')
+        if last_code_open > last_code_close:
+            return m.group(0)
+        alt = m.group(1)
+        src = m.group(2)
+        return f'<img src="{src}" alt="{escape_html(alt)}" style="max-width:100%;height:auto;vertical-align:middle">'
+    text = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', replace_img, text)
     text = md_link_to_html(text, s)
     text = md_bold_to_html(text, s)
-    text = md_code_to_html(text, s)
     return text
 
 

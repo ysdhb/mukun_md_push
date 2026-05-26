@@ -161,6 +161,14 @@ def parse_article(md_text):
             flush_bq()
             in_blockquote = False
 
+        # 图片（独立行）
+        img_match = re.match(r'^!\[([^\]]*)\]\(([^)\n]+)\)$', stripped)
+        if img_match:
+            flush_para()
+            flush_table()
+            blocks.append({"type": "image", "alt": img_match.group(1).strip(), "src": img_match.group(2).strip()})
+            continue
+
         # H2 章节标题
         if stripped.startswith('## '):
             flush_para()
@@ -228,11 +236,30 @@ def escape_html(text):
 
 
 def format_text(text, s):
-    """文章文本格式化：粗体、链接、行内代码"""
+    """文章文本格式化：粗体、链接、行内代码、图片"""
     text = escape_html(text)
 
-    # 链接
+    # 行内代码
     accent = s["accent"]
+    def replace_code(m):
+        return f'<code style="font-size:13px;background:#f5f5f5;color:{accent};padding:2px 6px">{m.group(1)}</code>'
+    text = re.sub(r'`([^`]+)`', replace_code, text)
+
+    # 内联图片（必须在链接之前处理，避免 ![...](url) 被链接正则误匹配）
+    # 同时在回调中检查匹配位置是否在 <code> 标签内，避免误转换行内代码中的 ![]()
+    def replace_img(m):
+        # 检查是否在 <code> 标签内
+        prefix = text[:m.start()]
+        last_code_open = prefix.rfind('<code')
+        last_code_close = prefix.rfind('</code>')
+        if last_code_open > last_code_close:
+            return m.group(0)  # 在 <code> 内，保持原样
+        alt = m.group(1)
+        src = m.group(2)
+        return f'<img src="{src}" alt="{escape_html(alt)}" style="max-width:100%;height:auto;vertical-align:middle">'
+    text = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', replace_img, text)
+
+    # 链接
     def replace_link(m):
         return f'<a href="{m.group(2)}" style="color:{accent};text-decoration:none">{m.group(1)}</a>'
     text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', replace_link, text)
@@ -242,11 +269,6 @@ def format_text(text, s):
     def replace_bold(m):
         return f'<b style="font-weight:bold;color:{bold_color}">{m.group(1)}</b>'
     text = re.sub(r'\*\*([^*]+)\*\*', replace_bold, text)
-
-    # 行内代码
-    def replace_code(m):
-        return f'<code style="font-size:13px;background:#f5f5f5;color:{accent};padding:2px 6px">{m.group(1)}</code>'
-    text = re.sub(r'`([^`]+)`', replace_code, text)
 
     return text
 
@@ -378,6 +400,14 @@ def generate_html(data, s):
             content_parts.append(render_code_block(text))
         elif btype == "table":
             content_parts.append(render_table(block["rows"], s))
+        elif btype == "image":
+            alt_text = escape_html(block.get("alt", ""))
+            img_src = block.get("src", "")
+            content_parts.append(
+                f'<p style="margin:16px auto;text-align:center">'
+                f'<img src="{img_src}" alt="{alt_text}" style="max-width:100%;height:auto;display:block;margin:0 auto">'
+                f'</p>'
+            )
         elif btype == "para":
             formatted = format_text(escape_html(text), s)
             content_parts.append(
@@ -394,7 +424,7 @@ def generate_html(data, s):
 
 # ─── 样式配置加载 ─────────────────────────────────────
 
-# 默认配置（AI 文章风格）
+# 默认配置（白底灰字 + 棕色标签标题）
 ARTICLE_DEFAULTS = {
     "bg": "#ffffff",
     "text": "rgb(85,85,85)",
@@ -416,6 +446,45 @@ ARTICLE_DEFAULTS = {
         "您的支持是我继续写下去的动力",
         "注：原创不易，合作请在公众号后台留言，未经许可，不得随意修改及盗用原文。",
     ],
+}
+
+# 预置主题
+ARTICLE_THEMES = {
+    "nostalgic": {
+        "bg": "#f6f1e7",
+        "text": "rgb(85,85,85)",
+        "accent": "#3c2415",
+        "hero_bg": "#3c2415",
+        "hero_title_color": "#faf7f0",
+        "bold": "rgb(51,51,51)",
+        "rule": "#c4a882",
+        "caption": "#a89880",
+        "title_font_size": "24px",
+        "text_font_size": "16px",
+        "h2_font_size": "18px",
+        "cover_label": "成语典故 · 历史人物",
+        "footer": "成语典故 · 历史人物",
+        "ending_lines": [],
+    },
+    "modern": {
+        "bg": "#ffffff",
+        "text": "#2d2d2d",
+        "accent": "#2563eb",
+        "hero_bg": "#1e293b",
+        "hero_title_color": "#f8fafc",
+        "bold": "#111827",
+        "rule": "#e5e7eb",
+        "caption": "#9ca3af",
+        "title_font_size": "24px",
+        "text_font_size": "16px",
+        "h2_font_size": "18px",
+        "cover_label": "技术探索",
+        "footer": "",
+        "ending_lines": [
+            "— End —",
+            "如果觉得有用，欢迎 <span style=\"color:#2563eb\">点赞</span> <span style=\"color:#2563eb\">在看</span> <span style=\"color:#2563eb\">转发</span>",
+        ],
+    },
 }
 
 
@@ -444,6 +513,7 @@ def load_article_style_config(config_path=None):
     sub_is_list = False
     sub_map = None
     list_initialized = set()
+    theme_key = None  # 收集到的 theme 值
 
     def _parse_value(raw_v):
         raw_v = raw_v.strip()
@@ -477,6 +547,7 @@ def load_article_style_config(config_path=None):
             in_article = True
             sub_map = None
             sub_is_list = False
+            theme_key = None
             continue
 
         # 遇到其他模式节点，退出 article
@@ -484,6 +555,7 @@ def load_article_style_config(config_path=None):
             in_article = False
             sub_map = None
             sub_is_list = False
+            theme_key = None
             continue
 
         if not in_article:
@@ -531,9 +603,20 @@ def load_article_style_config(config_path=None):
             v = _parse_value(raw_v)
             sub_map = None
             sub_is_list = False
+            # theme 字段特殊处理：收集起来，遍历完后再应用
+            if k == "theme":
+                theme_key = v
+                continue
             if k in defaults:
                 defaults[k] = v
             continue
+
+    # 应用预置主题（config 中 theme 优先级最高；article 节内的独立字段会覆盖主题预设）
+    if theme_key and theme_key in ARTICLE_THEMES:
+        preset = ARTICLE_THEMES[theme_key]
+        for pk, pv in preset.items():
+            if pk not in list_initialized:
+                defaults[pk] = pv
 
     return defaults
 
