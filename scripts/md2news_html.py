@@ -649,10 +649,6 @@ def main():
 
     char_count = len(html)
     print(f"   总字符: {char_count}")
-    if char_count > 20000:
-        print(f"   ⚠️  警告: 字符数 {char_count} 超过微信公众号草稿接口限制（20000字符）！")
-    else:
-        print(f"   ✅ 字符数在微信限制内（{char_count}/20000）")
 
 
 if __name__ == "__main__":
