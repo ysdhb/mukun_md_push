@@ -1,6 +1,6 @@
 ---
 name: mukun-md-push-wechat
-description: 将 Markdown 文件转换为符合微信公众号规范的 HTML 文件，并可进一步推送到微信公众号草稿箱。支持日报模式（默认）、长文/历史故事模式（--essay）、AI 文章模式（--ai）。支持推送 Markdown 到稀土掘金草稿箱。当用户提到"md转微信html""推送公众号""转换微信公众号格式""推送到掘金""掘金草稿"等意图时触发此技能。
+description: 将 Markdown 文件转换为符合微信公众号规范的 HTML 文件，并可进一步推送到微信公众号草稿箱。支持文章模式（默认，含 7 种预设样式）和新闻模式（--news）。支持推送 Markdown 到稀土掘金草稿箱。当用户提到"md转微信html""推送公众号""转换微信公众号格式""推送到掘金""掘金草稿"等意图时触发此技能。
 allowed-tools: Read, Bash, Write
 ---
 
@@ -35,7 +35,7 @@ allowed-tools: Read, Bash, Write
 
 ### 文章模式预设样式
 
-文章模式内置 6 种预设样式，用户用自然语言描述即可自动匹配。每个预设对应 `references/` 目录下一个独立的 YAML 配置文件，既可被 SKILL.md 用自然语言匹配，也可直接通过 `--config` 传入脚本使用。
+文章模式内置 7 种预设样式，用户用自然语言描述即可自动匹配。每个预设对应 `references/` 目录下一个独立的 YAML 配置文件，既可被 SKILL.md 用自然语言匹配，也可直接通过 `--config` 传入脚本使用。
 
 | 预设 | 配置文件 | 视觉特征 | 自然语言触发词（含任一即匹配） |
 |------|---------|---------|--------------------------|
@@ -45,6 +45,7 @@ allowed-tools: Read, Bash, Write
 | 青绿引号 | `references/article_journal.yaml` | 米白底 + 青绿引号线 H2（大 Q + 引号包裹标题） | 青绿、青绿引号、引号标题、引号线、文艺、杂志、专栏、清爽、雅致、小清新 |
 | 角标绿条 | `references/article_growth.yaml` | 白底 + 黄色编号角标 + 绿色标签块 H2 | 角标、角标绿条、角标编号、编号角标、badge、清单、步骤、运营、资讯、拆解、模块化、绿底封面 |
 | 中轴蓝卡 | `references/article_blueprint.yaml` | 冷灰底 + 中轴蓝色编号卡 H2（居中编号 + 两侧横线） | 中轴、中轴蓝卡、中轴编号、编号卡、center、灰底、冷灰、蓝灰底、蓝色、产品文档、技术手册、结构化、规范、正式 |
+| 紫绿清韵 | `references/article_scholar.yaml` | 白底 + 紫色胶囊框 H2（紫底紫字紫左边）+ 翠绿 H3 + 正文首行缩进 | 清韵、紫绿、紫绿清韵、紫胶囊、紫色胶囊、紫框、双色、双色对比、技术博客、深度技术、研究笔记、思辨、学术、学者、码上菩提 |
 
 **匹配规则**：
 - 用户提及"默认样式"/"白色"/"白底"/"常规"/"简洁"/"干净"/"基础" → 使用 `${CODEBUDDY_SKILL_DIR}/references/article_default.yaml`
@@ -53,6 +54,7 @@ allowed-tools: Read, Bash, Write
 - 用户提及"青绿"/"青绿引号"/"引号标题"/"引号线"/"文艺"/"杂志"/"专栏"/"清爽"/"雅致"/"小清新" → 使用 `${CODEBUDDY_SKILL_DIR}/references/article_journal.yaml`
 - 用户提及"角标"/"角标绿条"/"角标编号"/"编号角标"/"badge"/"清单"/"步骤"/"运营"/"资讯"/"拆解"/"模块化"/"绿底封面" → 使用 `${CODEBUDDY_SKILL_DIR}/references/article_growth.yaml`
 - 用户提及"中轴"/"中轴蓝卡"/"中轴编号"/"编号卡"/"center"/"灰底"/"冷灰"/"蓝灰底"/"蓝色"/"产品文档"/"技术手册"/"结构化"/"规范"/"正式" → 使用 `${CODEBUDDY_SKILL_DIR}/references/article_blueprint.yaml`
+- 用户提及"清韵"/"紫绿"/"紫绿清韵"/"紫胶囊"/"紫色胶囊"/"紫框"/"双色"/"双色对比"/"技术博客"/"深度技术"/"研究笔记"/"思辨"/"学术"/"学者"/"码上菩提" → 使用 `${CODEBUDDY_SKILL_DIR}/references/article_scholar.yaml`
 - 用户未提及任何风格关键词 → **默认使用 `references/article_default.yaml`**
 
 
@@ -63,32 +65,36 @@ allowed-tools: Read, Bash, Write
 python3 ${CODEBUDDY_SKILL_DIR}/scripts/md2wechat_html.py <input.md> [output.html]
 ```
 
-三种转换模式：
-- **日报模式（默认）**：一条消息对应一条新闻，分四大板块，报纸风格配色
-- **长文/历史故事模式（`--essay`）**：泛黄报纸风格背景，适合成语典故、历史故事类长文
-- **AI 文章模式（`--ai`）**：白底灰字 + 棕色标签二级标题 + 固定尾栏，适合 AI 实践类文章
+两种转换模式：
+- **文章模式（默认，`--article`）**：长文叙事渲染，支持 7 种预设样式（默认、泛黄怀旧、科技蓝紫、青绿引号、角标绿条、中轴蓝卡、紫绿清韵），通过 `--config` 参数指定样式配置
+- **新闻模式（`--news`）**：板块化日报格式，报纸风格配色，支持通过 `config.yaml` 的 `style.news` 节点自定义样式
 
 示例：
 ```bash
-# 日报模式
+# 文章模式（默认，使用默认样式）
 python3 ${CODEBUDDY_SKILL_DIR}/scripts/md2wechat_html.py article.md article_wechat.html
 
-# 长文模式
-python3 ${CODEBUDDY_SKILL_DIR}/scripts/md2wechat_html.py --essay story.md story_wechat.html
+# 文章模式（指定预设样式）
+python3 ${CODEBUDDY_SKILL_DIR}/scripts/md2wechat_html.py --config ${CODEBUDDY_SKILL_DIR}/references/article_nostalgic.yaml article.md article_wechat.html
 
-# AI文章模式
-python3 ${CODEBUDDY_SKILL_DIR}/scripts/md2wechat_html.py --ai ai_article.md ai_wechat.html
+# 新闻模式
+python3 ${CODEBUDDY_SKILL_DIR}/scripts/md2wechat_html.py --news news.md news_wechat.html
+
+# 新闻模式（自定义样式）
+python3 ${CODEBUDDY_SKILL_DIR}/scripts/md2wechat_html.py --news --config ~/.md_push_wechat/custom_news.yaml news.md news_wechat.html
 ```
 
-输出 HTML 文件保存在当前工作目录。若未指定 output.html，则根据模式自动生成文件名后缀（`_wechat.html`、`_essay_wechat.html`、`_ai_wechat.html`）。
+输出 HTML 文件保存在当前工作目录。若未指定 output.html，则根据模式自动生成文件名后缀（`_wechat.html` 或 `_news_wechat.html`）。
 
 ## 技能 2：转换 + 推送草稿箱
 
 调用脚本：
 ```bash
+# 文章模式（默认）
 python3 ${CODEBUDDY_SKILL_DIR}/scripts/push_daily.py <input.md> [--title TITLE] [--cover COVER] [--digest DIGEST] [--media-id MEDIA_ID]
-python3 ${CODEBUDDY_SKILL_DIR}/scripts/push_daily.py --essay <input.md> [--title TITLE] [--cover COVER] [--digest DIGEST] [--media-id MEDIA_ID]
-python3 ${CODEBUDDY_SKILL_DIR}/scripts/push_daily.py --ai <input.md> [--title TITLE] [--cover COVER] [--digest DIGEST] [--media-id MEDIA_ID]
+
+# 新闻模式（--news）
+python3 ${CODEBUDDY_SKILL_DIR}/scripts/push_daily.py --news <input.md> [--title TITLE] [--cover COVER] [--digest DIGEST] [--media-id MEDIA_ID]
 ```
 
 支持 Markdown frontmatter 提取标题和摘要：
